@@ -97,6 +97,28 @@ def calculate_num_active_guilds():
     return out
 
 
+def calculate_alias_calls(event_type):
+    now = datetime.datetime.now()
+    out = {
+        "day": db.analytics_alias_events.count_documents(
+            {"type": event_type,
+             "timestamp": {"$gt": now - datetime.timedelta(days=1)}}
+        ),
+        "week": db.analytics_alias_events.count_documents(
+            {"type": event_type,
+             "timestamp": {"$gt": now - datetime.timedelta(days=7)}}
+        ),
+        "month": db.analytics_alias_events.count_documents(
+            {"type": event_type,
+             "timestamp": {"$gt": now - datetime.timedelta(days=30)}}
+        ),
+        "to_date": db.analytics_alias_events.count_documents(
+            {"type": event_type}
+        )
+    }
+    return out
+
+
 # main
 def calculate_daily():
     try:
@@ -126,6 +148,23 @@ def calculate_daily():
     out['num_active_users'] = calculate_num_active_users()
     # guilds active today/this week/this month (have called a command in the last 24h/1w/1mo)
     out['num_active_guilds'] = calculate_num_active_guilds()
+
+    # -- alias stats --
+    # {
+    #   "day": number,
+    #   "week": number,
+    #   "month": number,
+    #   "to_date": number
+    # }
+
+    # aliases called today
+    out['num_alias_calls'] = calculate_alias_calls("alias")
+    # servaliases called today
+    out['num_servalias_calls'] = calculate_alias_calls("servalias")
+    # snippets called today
+    out['num_snippet_calls'] = calculate_alias_calls("snippet")
+    # servsnippets called today
+    out['num_servsnippet_calls'] = calculate_alias_calls("servsnippet")
 
     # to date, for delta calcs
     out['to_date'] = to_date

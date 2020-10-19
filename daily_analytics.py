@@ -3,12 +3,12 @@ import json
 import logging
 import os
 
-import boto3
 import pymongo
 from pymongo import MongoClient
 
 MONGO_URL_SECRET_ARN = os.getenv('MONGO_URL_SECRET_ARN')
 MONGO_DB = os.getenv('MONGO_DB_NAME', 'avrae')
+MONGO_URL_OVERRIDE = os.getenv('MONGO_URL')  # for manual running
 
 # init logger
 logger = logging.getLogger()
@@ -16,6 +16,9 @@ logger.setLevel(logging.INFO)
 
 
 def get_mongo_url():
+    if MONGO_URL_OVERRIDE is not None:
+        return MONGO_URL_OVERRIDE
+    import boto3
     session = boto3.session.Session()
     secrets_client = session.client('secretsmanager')
     get_secret_value_response = secrets_client.get_secret_value(
@@ -71,46 +74,52 @@ def calculate_num_characters(last_to_date):
 
 
 # returns {day: int, week: int, month: int}
-def calculate_num_active_users():
-    now = datetime.datetime.now()
+def calculate_num_active_users(now):
     out = {
         "day": db.analytics_user_activity.count_documents({"last_command_time":
-                                                               {"$gt": now - datetime.timedelta(days=1)}}),
+                                                               {"$gt": now - datetime.timedelta(days=1),
+                                                                "$lte": now}}),
         "week": db.analytics_user_activity.count_documents({"last_command_time":
-                                                                {"$gt": now - datetime.timedelta(days=7)}}),
+                                                                {"$gt": now - datetime.timedelta(days=7),
+                                                                 "$lte": now}}),
         "month": db.analytics_user_activity.count_documents({"last_command_time":
-                                                                 {"$gt": now - datetime.timedelta(days=30)}})
+                                                                 {"$gt": now - datetime.timedelta(days=30),
+                                                                  "$lte": now}})
     }
     return out
 
 
-def calculate_num_active_guilds():
-    now = datetime.datetime.now()
+def calculate_num_active_guilds(now):
     out = {
         "day": db.analytics_guild_activity.count_documents({"last_command_time":
-                                                                {"$gt": now - datetime.timedelta(days=1)}}),
+                                                                {"$gt": now - datetime.timedelta(days=1),
+                                                                 "$lte": now}}),
         "week": db.analytics_guild_activity.count_documents({"last_command_time":
-                                                                 {"$gt": now - datetime.timedelta(days=7)}}),
+                                                                 {"$gt": now - datetime.timedelta(days=7),
+                                                                  "$lte": now}}),
         "month": db.analytics_guild_activity.count_documents({"last_command_time":
-                                                                  {"$gt": now - datetime.timedelta(days=30)}})
+                                                                  {"$gt": now - datetime.timedelta(days=30),
+                                                                   "$lte": now}})
     }
     return out
 
 
-def calculate_alias_calls(event_type):
-    now = datetime.datetime.now()
+def calculate_alias_calls(now, event_type):
     out = {
         "day": db.analytics_alias_events.count_documents(
             {"type": event_type,
-             "timestamp": {"$gt": now - datetime.timedelta(days=1)}}
+             "timestamp": {"$gt": now - datetime.timedelta(days=1),
+                           "$lte": now}}
         ),
         "week": db.analytics_alias_events.count_documents(
             {"type": event_type,
-             "timestamp": {"$gt": now - datetime.timedelta(days=7)}}
+             "timestamp": {"$gt": now - datetime.timedelta(days=7),
+                           "$lte": now}}
         ),
         "month": db.analytics_alias_events.count_documents(
             {"type": event_type,
-             "timestamp": {"$gt": now - datetime.timedelta(days=30)}}
+             "timestamp": {"$gt": now - datetime.timedelta(days=30),
+                           "$lte": now}}
         ),
         "to_date": db.analytics_alias_events.count_documents(
             {"type": event_type}
@@ -120,7 +129,8 @@ def calculate_alias_calls(event_type):
 
 
 # main
-def calculate_daily():
+def calculate_daily(now=None):
+    now = now or datetime.datetime.now()
     try:
         last = next(db.analytics_daily.find().sort("timestamp", pymongo.DESCENDING).limit(1))
     except StopIteration:
@@ -128,7 +138,7 @@ def calculate_daily():
     last_to_date = last.get("to_date", {})
 
     # setup
-    out = {"timestamp": datetime.datetime.now()}
+    out = {"timestamp": now}
     to_date = dict()
 
     # --- calculations ---
@@ -145,9 +155,9 @@ def calculate_daily():
 
     # -- timeframed --
     # users active today/this week/this month (have called a command in the last 24h/1w/1mo)
-    out['num_active_users'] = calculate_num_active_users()
+    out['num_active_users'] = calculate_num_active_users(now)
     # guilds active today/this week/this month (have called a command in the last 24h/1w/1mo)
-    out['num_active_guilds'] = calculate_num_active_guilds()
+    out['num_active_guilds'] = calculate_num_active_guilds(now)
 
     # -- alias stats --
     # {
@@ -158,13 +168,13 @@ def calculate_daily():
     # }
 
     # aliases called today
-    out['num_alias_calls'] = calculate_alias_calls("alias")
+    out['num_alias_calls'] = calculate_alias_calls(now, "alias")
     # servaliases called today
-    out['num_servalias_calls'] = calculate_alias_calls("servalias")
+    out['num_servalias_calls'] = calculate_alias_calls(now, "servalias")
     # snippets called today
-    out['num_snippet_calls'] = calculate_alias_calls("snippet")
+    out['num_snippet_calls'] = calculate_alias_calls(now, "snippet")
     # servsnippets called today
-    out['num_servsnippet_calls'] = calculate_alias_calls("servsnippet")
+    out['num_servsnippet_calls'] = calculate_alias_calls(now, "servsnippet")
 
     # to date, for delta calcs
     out['to_date'] = to_date
@@ -176,5 +186,36 @@ def lambda_handler(event, context):
     logger.info("Received event: " + json.dumps(event, indent=2))
 
     db.analytics_daily.insert_one(calculate_daily())
+
+    logger.info("Done!")
+
+
+if __name__ == '__main__':
+    days = [
+        datetime.datetime(year=2020, month=10, day=2, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=3, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=4, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=5, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=6, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=7, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=8, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=9, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=10, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=11, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=12, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=13, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=14, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=15, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=16, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=17, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=18, hour=0, minute=0, second=0),
+        datetime.datetime(year=2020, month=10, day=19, hour=0, minute=0, second=0),
+    ]
+    db.analytics_daily.delete_many(
+        {"timestamp": {"$gte": days[0], "$lte": days[-1]}}
+    )
+    for day in days:
+        print(day)
+        db.analytics_daily.insert_one(calculate_daily(day))
 
     logger.info("Done!")

@@ -122,7 +122,8 @@ def calculate_alias_calls(now, event_type):
                            "$lte": now}}
         ),
         "to_date": db.analytics_alias_events.count_documents(
-            {"type": event_type}
+            {"type": event_type,
+             "timestamp": {"$lte": now}}
         )
     }
     return out
@@ -175,6 +176,14 @@ def calculate_daily(now=None):
     out['num_snippet_calls'] = calculate_alias_calls(now, "snippet")
     # servsnippets called today
     out['num_servsnippet_calls'] = calculate_alias_calls(now, "servsnippet")
+    # workshop aliases called today
+    out['num_workshop_alias_calls'] = calculate_alias_calls(now, "workshop_alias")
+    # workshop servaliases called today
+    out['num_workshop_servalias_calls'] = calculate_alias_calls(now, "workshop_servalias")
+    # workshop snippets called today
+    out['num_workshop_snippet_calls'] = calculate_alias_calls(now, "workshop_snippet")
+    # workshop servsnippets called today
+    out['num_workshop_servsnippet_calls'] = calculate_alias_calls(now, "workshop_servsnippet")
 
     # to date, for delta calcs
     out['to_date'] = to_date
@@ -191,26 +200,7 @@ def lambda_handler(event, context):
 
 
 if __name__ == '__main__':
-    days = [
-        datetime.datetime(year=2020, month=10, day=2, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=3, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=4, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=5, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=6, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=7, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=8, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=9, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=10, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=11, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=12, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=13, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=14, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=15, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=16, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=17, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=18, hour=0, minute=0, second=0),
-        datetime.datetime(year=2020, month=10, day=19, hour=0, minute=0, second=0),
-    ]
+    days = []
     db.analytics_daily.delete_many(
         {"timestamp": {"$gte": days[0], "$lte": days[-1]}}
     )
